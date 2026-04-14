@@ -1,0 +1,371 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum ArticleStatus {
+  draft
+  review
+  scheduled
+  published
+  archived
+}
+
+enum ArticleType {
+  news
+  analysis
+  review
+  regulation
+  risk_alert
+}
+
+enum SourceType {
+  rss
+  api
+  manual
+  ai
+  rewrite
+}
+
+enum PublishStatus {
+  pending
+  processing
+  success
+  failed
+}
+
+model Site {
+  id                String         @id @default(cuid())
+  code              String         @unique
+  domain            String         @unique
+  title             String
+  titleZh           String?
+  description       String?
+  descriptionZh     String?
+  language          String         @default("zh-CN")
+  region            String         @default("CN")
+  baseUrl           String
+  defaultRobots     String         @default("index,follow")
+  newsLookbackHours Int            @default(48)
+  enabled           Boolean        @default(true)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  articles          Article[]
+  categories        Category[]
+  tags              Tag[]
+  authors           AuthorProfile[]
+  sources           Source[]
+  scheduleTasks     ScheduleTask[]
+  mediaAssets       MediaAsset[]
+  topicClusters     TopicCluster[]
+  internalLinkRules InternalLinkRule[]
+  redirectRules     RedirectRule[]
+  crawlLogs         CrawlLog[]
+  generationLogs    GenerationLog[]
+  indexingLogs      IndexingLog[]
+}
+
+model Role {
+  id          String @id @default(cuid())
+  name        String @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  users       User[]
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  displayName  String
+  roleId       String
+  role         Role     @relation(fields: [roleId], references: [id])
+  siteId       String?
+  site         Site?    @relation(fields: [siteId], references: [id])
+  enabled      Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model AuthorProfile {
+  id          String    @id @default(cuid())
+  siteId      String
+  site        Site      @relation(fields: [siteId], references: [id])
+  name        String
+  nameZh      String?
+  bio         String?
+  avatar      String?
+  email       String?
+  expertise   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  articles    Article[]
+}
+
+model Category {
+  id          String   @id @default(cuid())
+  siteId      String
+  site        Site     @relation(fields: [siteId], references: [id])
+  name        String
+  nameZh      String?
+  slug        String
+  description String?
+  parentId    String?
+  parent      Category? @relation("CategoryToCategory", fields: [parentId], references: [id])
+  children    Category[] @relation("CategoryToCategory")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  articles    Article[]
+
+  @@unique([siteId, slug])
+}
+
+model Tag {
+  id          String   @id @default(cuid())
+  siteId      String
+  site        Site     @relation(fields: [siteId], references: [id])
+  name        String
+  nameZh      String?
+  slug        String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  articleTags ArticleTag[]
+
+  @@unique([siteId, slug])
+}
+
+model Article {
+  id                String         @id @default(cuid())
+  siteId            String
+  site              Site           @relation(fields: [siteId], references: [id])
+  title             String
+  subtitle          String?
+  slug              String
+  summary           String?
+  contentHtml       String         @db.LongText
+  contentMarkdown   String         @db.LongText
+  coverImage        String?
+  authorId          String?
+  author            AuthorProfile? @relation(fields: [authorId], references: [id])
+  sourceId          String?
+  source            Source?        @relation(fields: [sourceId], references: [id])
+  categoryId        String?
+  category          Category?      @relation(fields: [categoryId], references: [id])
+  status            ArticleStatus  @default(draft)
+  articleType       ArticleType    @default(news)
+  language          String         @default("zh-CN")
+  region            String         @default("CN")
+  isBreaking        Boolean        @default(false)
+  isFeatured        Boolean        @default(false)
+  publishedAt       DateTime?
+  scheduledAt       DateTime?
+  canonicalUrl      String?
+  originalSourceUrl String?
+  aiGenerated       Boolean        @default(false)
+  aiModel           String?
+  wordCount         Int            @default(0)
+  readingTime       Int            @default(0)
+  factCheckStatus   String         @default("pending")
+  complianceStatus  String         @default("pending")
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  seoMeta           SeoMeta?
+  revisions         ArticleRevision[]
+  tags              ArticleTag[]
+  publishJobs       PublishJob[]
+  indexingLogs      IndexingLog[]
+
+  @@unique([siteId, slug])
+  @@index([siteId, status, publishedAt])
+}
+
+model ArticleRevision {
+  id          String   @id @default(cuid())
+  articleId   String
+  article     Article  @relation(fields: [articleId], references: [id])
+  title       String
+  contentHtml String   @db.LongText
+  editorId    String?
+  note        String?
+  createdAt   DateTime @default(now())
+}
+
+model ArticleTag {
+  articleId String
+  tagId     String
+  article   Article @relation(fields: [articleId], references: [id])
+  tag       Tag     @relation(fields: [tagId], references: [id])
+
+  @@id([articleId, tagId])
+}
+
+model Source {
+  id                   String      @id @default(cuid())
+  siteId               String
+  site                 Site        @relation(fields: [siteId], references: [id])
+  name                 String
+  type                 SourceType
+  baseUrl              String?
+  language             String      @default("zh-CN")
+  region               String      @default("CN")
+  enabled              Boolean     @default(true)
+  crawlIntervalMinutes Int         @default(30)
+  lastFetchedAt        DateTime?
+  noteZh               String?
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+  items                SourceItem[]
+  articles             Article[]
+
+  @@index([siteId, enabled])
+}
+
+model SourceItem {
+  id           String   @id @default(cuid())
+  sourceId     String
+  source       Source   @relation(fields: [sourceId], references: [id])
+  title        String
+  url          String   @unique
+  contentRaw   String?  @db.LongText
+  publishedAt  DateTime?
+  fingerprint  String?
+  processed    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+}
+
+model SeoMeta {
+  id                 String   @id @default(cuid())
+  articleId          String   @unique
+  article            Article  @relation(fields: [articleId], references: [id])
+  metaTitle          String
+  metaDescription    String
+  metaKeywords       String?
+  ogTitle            String?
+  ogDescription      String?
+  ogImage            String?
+  twitterTitle       String?
+  twitterDescription String?
+  twitterImage       String?
+  robots             String   @default("index,follow")
+  schemaType         String   @default("Article")
+  schemaJson         Json?
+  breadcrumbJson     Json?
+  faqJson            Json?
+  newsKeywords       String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model PublishJob {
+  id            String        @id @default(cuid())
+  articleId     String
+  article       Article       @relation(fields: [articleId], references: [id])
+  publishStatus PublishStatus @default(pending)
+  scheduledAt   DateTime?
+  publishedAt   DateTime?
+  retryCount    Int           @default(0)
+  errorMessage  String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+model ScheduleTask {
+  id          String   @id @default(cuid())
+  siteId      String
+  site        Site     @relation(fields: [siteId], references: [id])
+  name        String
+  cron        String
+  enabled     Boolean  @default(true)
+  lastRunAt   DateTime?
+  nextRunAt   DateTime?
+  config      Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model MediaAsset {
+  id          String   @id @default(cuid())
+  siteId      String
+  site        Site     @relation(fields: [siteId], references: [id])
+  url         String
+  type        String
+  alt         String?
+  width       Int?
+  height      Int?
+  createdAt   DateTime @default(now())
+}
+
+model TopicCluster {
+  id          String   @id @default(cuid())
+  siteId      String
+  site        Site     @relation(fields: [siteId], references: [id])
+  name        String
+  slug        String
+  description String?
+  createdAt   DateTime @default(now())
+}
+
+model InternalLinkRule {
+  id          String   @id @default(cuid())
+  siteId      String
+  site        Site     @relation(fields: [siteId], references: [id])
+  keyword     String
+  targetUrl   String
+  anchorText  String?
+  priority    Int      @default(1)
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+model RedirectRule {
+  id          String   @id @default(cuid())
+  siteId      String
+  site        Site     @relation(fields: [siteId], references: [id])
+  fromPath    String
+  toPath      String
+  statusCode  Int      @default(301)
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+model CrawlLog {
+  id          String   @id @default(cuid())
+  siteId      String
+  site        Site     @relation(fields: [siteId], references: [id])
+  sourceId    String?
+  startedAt   DateTime @default(now())
+  endedAt     DateTime?
+  status      String
+  message     String?
+  fetched     Int      @default(0)
+}
+
+model GenerationLog {
+  id          String   @id @default(cuid())
+  siteId      String
+  site        Site     @relation(fields: [siteId], references: [id])
+  articleId   String?
+  model       String?
+  promptType  String
+  input       String   @db.LongText
+  output      String?  @db.LongText
+  status      String
+  createdAt   DateTime @default(now())
+}
+
+model IndexingLog {
+  id          String   @id @default(cuid())
+  siteId      String
+  site        Site     @relation(fields: [siteId], references: [id])
+  articleId   String?
+  article     Article? @relation(fields: [articleId], references: [id])
+  url         String
+  status      String
+  submittedAt DateTime @default(now())
+  message     String?
+}
